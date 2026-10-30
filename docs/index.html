@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NB-Whisper Transcriber</title>
+    <!-- Self-hosted with a patched gradio_client wheel; see scripts/vendor_gradio_lite.py -->
+    <script type="module" crossorigin src="gradio-lite/lite.js"></script>
+    <link rel="stylesheet" href="gradio-lite/lite.css" />
+    <script>
+      // Gradio-Lite runs Python in a web worker, where the Web Audio API is not
+      // available. The Python app sends raw file bytes over this channel, and the
+      // main thread decodes them (any format the browser supports) to 16 kHz mono.
+      const SAMPLE_RATE = 16000;
+      const bridge = new BroadcastChannel("nb-whisper-audio");
+      bridge.onmessage = async ({ data }) => {
+        if (data.type !== "decode") return;
+        try {
+          const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+          const buffer = await ctx.decodeAudioData(data.bytes.slice().buffer);
+          await ctx.close();
+          let samples = buffer.getChannelData(0);
+          if (buffer.numberOfChannels > 1) {
+            samples = new Float32Array(buffer.length);
+            for (let c = 0; c < buffer.numberOfChannels; c++) {
+              const channel = buffer.getChannelData(c);
+              for (let i = 0; i < buffer.length; i++) samples[i] += channel[i] / buffer.numberOfChannels;
+            }
+          }
+          bridge.postMessage({ type: "decoded", id: data.id, samples, error: "" });
+        } catch (err) {
+          bridge.postMessage({ type: "decoded", id: data.id, samples: null, error: String(err) });
+        }
+      };
+    </script>
+  </head>
+  <body>
+    <gradio-lite>
+<gradio-requirements>
+transformers_js_py==0.19.10
+</gradio-requirements>
+<gradio-file name="app.py" entrypoint>
+import asyncio
+import uuid
+
+import gradio as gr
+import js
+import pyodide.ffi
+from transformers_js_py import import_transformers_js
+
+# Quantized ONNX conversions of NbAiLab/nb-whisper-* (Apache-2.0), small enough for CPU/WASM.
+MODELS = {
+    "NB-Whisper tiny (~120 MB)": "PierreMesure/nb-whisper-tiny-ONNX",
+    "NB-Whisper base (~180 MB)": "onnx-community/nb-whisper-base-ONNX",
+    "NB-Whisper small (~410 MB)": "onnx-community/nb-whisper-small-ONNX",
+}
+LANGUAGES = {"Bokmål": "no", "Nynorsk": "nn", "English": "en"}
+
+transformers = await import_transformers_js(
+    "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js"
+)
+pipelines = {}
+
+channel = js.BroadcastChannel.new("nb-whisper-audio")
+pending = {}
+
+
+def on_message(event):
+    data = event.data
+    if data.type != "decoded":
+        return
+    future = pending.pop(data.id, None)
+    if future is None or future.done():
+        return
+    if data.error:
+        future.set_exception(RuntimeError(f"Could not decode audio: {data.error}"))
+    else:
+        future.set_result(data.samples)
+
+
+channel.onmessage = pyodide.ffi.create_proxy(on_message)
+
+
+async def decode_audio(path):
+    with open(path, "rb") as f:
+        audio_bytes = f.read()
+    request_id = uuid.uuid4().hex
+    future = asyncio.get_event_loop().create_future()
+    pending[request_id] = future
+    message = {"type": "decode", "id": request_id, "bytes": audio_bytes}
+    channel.postMessage(pyodide.ffi.to_js(message, dict_converter=js.Object.fromEntries))
+    try:
+        return await asyncio.wait_for(future, timeout=120)
+    finally:
+        pending.pop(request_id, None)
+
+
+async def get_pipeline(model_label):
+    repo = MODELS[model_label]
+    if repo not in pipelines:
+        gr.Info(f"Downloading {model_label}. This happens only once; the model is cached in the browser.")
+        pipelines[repo] = await transformers.pipeline(
+            "automatic-speech-recognition", repo, {"dtype": "q8", "device": "wasm"}
+        )
+    return pipelines[repo]
+
+
+async def transcribe(audio_path, model_label, language_label):
+    if not audio_path:
+        raise gr.Error("Record or upload some audio first.")
+    samples = await decode_audio(audio_path)
+    pipe = await get_pipeline(model_label)
+    result = await pipe(
+        samples,
+        {
+            "language": LANGUAGES[language_label],
+            "task": "transcribe",
+            "chunk_length_s": 30,
+            "stride_length_s": 5,
+        },
+    )
+    return result["text"].strip()
+
+
+with gr.Blocks(title="NB-Whisper Transcriber") as demo:
+    gr.Markdown(
+        "# NB-Whisper Transcriber\n"
+        "Record or upload audio and transcribe it with "
+        "[NB-Whisper](https://huggingface.co/NbAiLab/nb-whisper-base) from the National Library of Norway. "
+        "Everything runs locally in your browser; the audio never leaves your machine."
+    )
+    with gr.Row():
+        with gr.Column():
+            audio = gr.Audio(sources=["microphone", "upload"], type="filepath", label="Audio")
+            model = gr.Dropdown(list(MODELS), value="NB-Whisper base (~180 MB)", label="Model")
+            language = gr.Radio(list(LANGUAGES), value="Bokmål", label="Output language")
+            button = gr.Button("Transcribe", variant="primary")
+        with gr.Column():
+            text = gr.Textbox(label="Transcription", lines=14, show_copy_button=True, elem_id="transcription")
+    button.click(transcribe, inputs=[audio, model, language], outputs=text)
+
+demo.launch()
+</gradio-file>
+    </gradio-lite>
+  </body>
+</html>
