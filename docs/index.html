@@ -138,6 +138,10 @@ with gr.Blocks(title="NB-Whisper Transcriber") as demo:
         with gr.Column():
             text = gr.Textbox(label="Transcription", lines=14, show_copy_button=True, elem_id="transcription")
     button.click(transcribe, inputs=[audio, model, language], outputs=text)
+    gr.Markdown(
+        "See source code at "
+        "[github.com/NationalLibraryOfNorway/dhlab-app-transcribe](https://github.com/NationalLibraryOfNorway/dhlab-app-transcribe)"
+    )
 
 demo.launch()
 </gradio-file>
