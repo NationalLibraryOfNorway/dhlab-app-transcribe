@@ -134,7 +134,9 @@ with gr.Blocks(title="NB-Whisper Transcriber", theme=theme, analytics_enabled=Fa
         "# NB-Whisper Transcriber\n"
         "Record or upload audio and transcribe it with "
         "[NB-Whisper](https://huggingface.co/NbAiLab/nb-whisper-base) from the National Library of Norway (quantized versions of the models). "
-        "Everything runs locally in your browser; the audio never leaves your machine."
+        "Everything runs locally in your browser; the audio never leaves your machine.\n\n"
+        "See source code at "
+        "[github.com/NationalLibraryOfNorway/dhlab-app-transcribe](https://github.com/NationalLibraryOfNorway/dhlab-app-transcribe)"
     )
     with gr.Row():
         with gr.Column():
@@ -145,10 +147,6 @@ with gr.Blocks(title="NB-Whisper Transcriber", theme=theme, analytics_enabled=Fa
         with gr.Column():
             text = gr.Textbox(label="Transcription", lines=14, show_copy_button=True, elem_id="transcription")
     button.click(transcribe, inputs=[audio, model, language], outputs=text)
-    gr.Markdown(
-        "See source code at "
-        "[github.com/NationalLibraryOfNorway/dhlab-app-transcribe](https://github.com/NationalLibraryOfNorway/dhlab-app-transcribe)"
-    )
 
 demo.launch()
 </gradio-file>
