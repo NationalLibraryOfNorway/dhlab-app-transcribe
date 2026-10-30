@@ -33,7 +33,7 @@ def transcribe(audio_path, model_label, language_label):
     return result["text"].strip()
 
 
-with gr.Blocks(title="NB-Whisper Transcriber") as demo:
+with gr.Blocks(title="NB-Whisper Transcriber", analytics_enabled=False) as demo:
     gr.Markdown(
         "# NB-Whisper Transcriber\n"
         "Record or upload audio and transcribe it with "

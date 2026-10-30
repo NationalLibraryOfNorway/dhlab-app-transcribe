@@ -122,7 +122,14 @@ async def transcribe(audio_path, model_label, language_label):
     return result["text"].strip()
 
 
-with gr.Blocks(title="NB-Whisper Transcriber") as demo:
+# No analytics to api.gradio.app and system fonts instead of Google Fonts,
+# so visitors' browsers don't contact Gradio or Google.
+theme = gr.themes.Default(
+    font=["ui-sans-serif", "system-ui", "sans-serif"],
+    font_mono=["ui-monospace", "Consolas", "monospace"],
+)
+
+with gr.Blocks(title="NB-Whisper Transcriber", theme=theme, analytics_enabled=False) as demo:
     gr.Markdown(
         "# NB-Whisper Transcriber\n"
         "Record or upload audio and transcribe it with "
